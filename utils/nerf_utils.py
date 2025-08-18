@@ -3,6 +3,7 @@
 # ======================================================
 import torch
 import numpy as np
+from einops import rearrange
 
 
 def get_rays(H, W, K, c2w, inverse_y=False, flip_x=False, flip_y=False, mode='center'):
@@ -88,6 +89,15 @@ def sin_emb(input_data, n_freq):  # n_freq 的作用是，学习更多高频的�
     input_data_cos = input_data_emb.cos()
     input_data_emb = torch.cat([input_data, input_data_sin, input_data_cos], -1)  # (N, 36)
     return input_data_emb
+
+
+def sinusoidal_embedding(n_channels, dim):
+    pe = torch.FloatTensor([[p / (10000 ** (2 * (i // 2) / dim)) for i in range(dim)]
+                            for p in range(n_channels)])
+    pe[:, 0::2] = torch.sin(pe[:, 0::2])
+    pe[:, 1::2] = torch.cos(pe[:, 1::2])
+    return rearrange(pe, '... -> 1 ...')
+
 
 def compute_3d_bbox_by_cam_frustrm(args, cfg, HW, Ks, poses, i_train, near, far, **kwargs):
     print('compute_bbox_by_cam_frustrm: start')
