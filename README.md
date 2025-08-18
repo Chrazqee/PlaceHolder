@@ -6,7 +6,7 @@ A try of OCL for dynamic scene understaning
 
 
 
-# :paper:
+# :papers:
 
 
-# :mail:
+# :mails:
