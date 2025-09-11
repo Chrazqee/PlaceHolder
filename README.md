@@ -12,4 +12,9 @@ A try of OCL for dynamic scene understaning
 # :cry:
 
 
-# :page_with_curl:
+
+
+
+# :page_with_curl: To-Do List
+- [ ]: 
+- [ ]: 
