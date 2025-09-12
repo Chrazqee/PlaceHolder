@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 # ======================================================
-# source code from: VGGT project
+# source code from: VGGT
 # ======================================================
 
 import torch

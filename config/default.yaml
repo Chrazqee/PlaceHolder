@@ -1,0 +1,8 @@
+
+patch_size=16
+
+visual_encoder_2d:
+  _target_: models.VisualEncoder2D
+  model_name: dinov3-vitb16
+
+
