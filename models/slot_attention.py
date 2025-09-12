@@ -283,4 +283,3 @@ class SA(nn.Module):
 
         return slots
 
-

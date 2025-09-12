@@ -7,6 +7,10 @@ import cv2
 import torch.nn as nn
 
 
+_RESNET_MEAN = [0.485, 0.456, 0.406]
+_RESNET_STD = [0.229, 0.224, 0.225]
+
+
 class VisualEncoder2D(nn.Module):
     """ A class to load different pretrained models based on the model name.
 
@@ -21,14 +25,19 @@ class VisualEncoder2D(nn.Module):
         Args:
             model_name (str): Name of the model to load.
         """
+        super().__init__()
         self.model_name = model_name
+
+        self.load_model()
 
 
     def load_model(self):
         if self.model_name == "dinov3-vitb16":
             self._load_dinov3_vitb16()
+            self.patch_size = 16
         elif self.model_name == "dinov2-vitb14":
             self._load_dinov2_vitb14()
+            self.patch_size = 14
         else:
             raise ValueError(f"Model {self.model_name} not supported yet.")
         
@@ -50,8 +59,8 @@ class VisualEncoder2D(nn.Module):
 
         self.model = AutoModel.from_pretrained(
             pretrained_model_name,
-            config=config,
-            device_map="auto",
+            config=config, 
+            device_map="auto",  # Automatically place model on available devices(multi-gpu if available)
         )
     
 
@@ -115,4 +124,46 @@ class Aggregator(nn.Module):
 
 if __name__ == "__main__":
     # [ ]: test VisualEncoder2D
-    pass 
+    import cv2
+    import torchvision.transforms as transforms
+
+
+    model_2d = VisualEncoder2D("dinov3-vitb16").eval()
+
+    image_transform = transforms.Compose([
+            transforms.ToTensor(),  # convert to tensor and normalize to [0, 1]
+            transforms.Resize((518, 518)),  # resize to 518x518
+            transforms.Normalize(mean=_RESNET_MEAN, 
+                                std=_RESNET_STD),
+        ])
+
+    # we have some pices of images
+    images_path_list = ["test/figs.assets/left113.png", 
+                        "test/figs.assets/left118.png",
+                        "test/figs.assets/left123.png",
+                        "test/figs.assets/left128.png",
+                        "test/figs.assets/left133.png",
+                        "test/figs.assets/left138.png",
+                        "test/figs.assets/left143.png",
+                        "test/figs.assets/left148.png",
+                   ] 
+    image_tensor_list = []
+    # read the image
+    for i, image_path in enumerate(images_path_list):
+        image = cv2.imread(image_path)  # BGR format
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image_tensor = image_transform(image)
+        if i == 0:
+            print(f"Image shape (C, H, W): {image_tensor.shape}")  # [3, H, W]
+        image_tensor_list.append(image_tensor)
+
+    # 将 image_tensor_list 中的 image_tensor stack 起来
+    image_batch = torch.stack(image_tensor_list)  # [len(images_path_list), 3, H, W]
+
+    # feed into our 2d model
+    with torch.no_grad():
+        outputs = model_2d(image_batch)
+    print(outputs.shape)  # [2, 8045, 768] for dinov3-vitb16
+    
+    # [ ]: Do some visualization works maybe!
+
