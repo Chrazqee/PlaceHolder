@@ -1,5 +1,5 @@
 
-patch_size=16
+patch_size: 16
 
 visual_encoder_2d:
   _target_: models.VisualEncoder2D

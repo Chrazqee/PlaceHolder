@@ -1,1 +1,4 @@
 .vscode
+models/__pycache__
+script_test.py
+test

@@ -68,7 +68,8 @@ class Loss_Function(nn.Module):
                  token_num,
                  num_slots
                  ):
-        """ Reconstruction loss function with MSE loss.
+        """ Reconstruction loss function with MSE loss between reconstruction and target.
+            e.g. slots after decoding and tokens from pretrained DINO.
         Args:
             token_num: int, number of tokens
             num_slots: int, number of slots

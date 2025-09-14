@@ -1,8 +1,5 @@
 import torch
-from PIL import Image
 from torchvision import transforms
-import matplotlib.pyplot as plt
-import numpy as np
 import cv2
 import torch.nn as nn
 
@@ -121,49 +118,100 @@ class Aggregator(nn.Module):
         pass
 
 
-
 if __name__ == "__main__":
-    # [ ]: test VisualEncoder2D
-    import cv2
-    import torchvision.transforms as transforms
+
+    def testing():
+        # [x]: test VisualEncoder2D
+        import cv2
+        import torchvision.transforms as transforms
 
 
-    model_2d = VisualEncoder2D("dinov3-vitb16").eval()
+        model_2d = VisualEncoder2D("dinov3-vitb16").eval()
 
-    image_transform = transforms.Compose([
-            transforms.ToTensor(),  # convert to tensor and normalize to [0, 1]
-            transforms.Resize((518, 518)),  # resize to 518x518
-            transforms.Normalize(mean=_RESNET_MEAN, 
-                                std=_RESNET_STD),
-        ])
+        image_transform = transforms.Compose([
+                transforms.ToTensor(),  # convert to tensor and normalize to [0, 1]
+                transforms.Resize((518, 518)),  # resize to 518x518
+                transforms.Normalize(mean=_RESNET_MEAN, 
+                                    std=_RESNET_STD),
+            ])
 
-    # we have some pices of images
-    images_path_list = ["test/figs.assets/left113.png", 
-                        "test/figs.assets/left118.png",
-                        "test/figs.assets/left123.png",
-                        "test/figs.assets/left128.png",
-                        "test/figs.assets/left133.png",
-                        "test/figs.assets/left138.png",
-                        "test/figs.assets/left143.png",
-                        "test/figs.assets/left148.png",
-                   ] 
-    image_tensor_list = []
-    # read the image
-    for i, image_path in enumerate(images_path_list):
-        image = cv2.imread(image_path)  # BGR format
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image_tensor = image_transform(image)
-        if i == 0:
-            print(f"Image shape (C, H, W): {image_tensor.shape}")  # [3, H, W]
-        image_tensor_list.append(image_tensor)
+        # we have some pices of images
+        images_path_list = ["test/figs.assets/left113.png", 
+                            "test/figs.assets/left118.png",
+                            "test/figs.assets/left123.png",
+                            "test/figs.assets/left128.png",
+                            "test/figs.assets/left133.png",
+                            "test/figs.assets/left138.png",
+                            "test/figs.assets/left143.png",
+                            "test/figs.assets/left148.png",
+                    ] 
+        image_tensor_list = []
+        # read the image
+        for i, image_path in enumerate(images_path_list):
+            image = cv2.imread(image_path)  # BGR format
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            image_tensor = image_transform(image)
+            if i == 0:
+                print(f"Image shape (C, H, W): {image_tensor.shape}")  # [3, H, W]
+            image_tensor_list.append(image_tensor)
 
-    # 将 image_tensor_list 中的 image_tensor stack 起来
-    image_batch = torch.stack(image_tensor_list)  # [len(images_path_list), 3, H, W]
+        # 将 image_tensor_list 中的 image_tensor stack 起来
+        image_batch = torch.stack(image_tensor_list)  # [len(images_path_list), 3, H, W]
 
-    # feed into our 2d model
-    with torch.no_grad():
-        outputs = model_2d(image_batch)
-    print(outputs.shape)  # [2, 8045, 768] for dinov3-vitb16
+        # feed into our 2d model
+        with torch.no_grad():
+            outputs = model_2d(image_batch)
+        print(outputs.shape)  # [2, 8045, 768] for dinov3-vitb16
+
+    def testing_with_hydra():
+        # [x]: test VisualEncoder2D with hydra
+        from omegaconf import DictConfig, OmegaConf
+        from hydra.utils import instantiate
+        from loguru import logger
+
+        # 我要显式指定 cfg
+        cfg = OmegaConf.load("config/default.yaml")
+
+        logger.info(cfg)
+
+        model_2d = instantiate(cfg.visual_encoder_2d, _recursive_=False).eval()
+
+        # 定义 transform
+        image_transform = transforms.Compose([
+                transforms.ToTensor(),  # convert to tensor and normalize to [0, 1]
+                transforms.Resize((518, 518)),  # resize to 518x518
+                transforms.Normalize(mean=_RESNET_MEAN, 
+                                     std=_RESNET_STD),
+            ])
+        # we have some pices of images
+        images_path_list = ["test/figs.assets/left113.png",
+                            "test/figs.assets/left118.png",
+                            "test/figs.assets/left123.png",
+                            "test/figs.assets/left128.png",
+                            "test/figs.assets/left133.png",
+                            "test/figs.assets/left138.png",
+                            "test/figs.assets/left143.png",
+                            "test/figs.assets/left148.png",
+                    ]
+        image_tensor_list = []
+        # read the image
+        for i, image_path in enumerate(images_path_list):
+            image = cv2.imread(image_path)  # BGR format
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            image_tensor = image_transform(image)
+            if i == 0:
+                print(f"Image shape (C, H, W): {image_tensor.shape}")  # [3, H, W]
+            image_tensor_list.append(image_tensor)
+        # 将 image_tensor_list 中的 image_tensor stack 起来
+        image_batch = torch.stack(image_tensor_list)  # [len(images_path_list), 3, H, W]
+        # feed into our 2d model
+        with torch.no_grad():
+            outputs = model_2d(image_batch)
+        print(outputs.shape)  # [2, 8045, 768] for dinov3-vitb16
+        
     
+
+    testing()
+
     # [ ]: Do some visualization works maybe!
 
