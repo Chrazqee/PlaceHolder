@@ -3,6 +3,8 @@ from torchvision import transforms
 import cv2
 import torch.nn as nn
 
+from mink_unet import mink_unet as model3D
+
 
 _RESNET_MEAN = [0.485, 0.456, 0.406]
 _RESNET_STD = [0.229, 0.224, 0.225]
@@ -16,15 +18,19 @@ class VisualEncoder2D(nn.Module):
         - "dinov3-vitb16": DINOv3 ViT-B/16
     
     """
-    def __init__(self, model_name):
+    def __init__(self, 
+                 model_name,
+                 keep_attn=False,
+                 ):
         """ Initialize the model loader with the model name.
 
         Args:
             model_name (str): Name of the model to load.
+            keep_attn (bool): Whether to keep attention weights (if supported by the model).
         """
         super().__init__()
         self.model_name = model_name
-
+        self.keep_attn = keep_attn
         self.load_model()
 
 
@@ -51,8 +57,10 @@ class VisualEncoder2D(nn.Module):
 
         pretrained_model_name = "facebook/dinov3-vitb16-pretrain-lvd1689m"
         config = AutoConfig.from_pretrained(pretrained_model_name)
-        config.attn_implementation = "eager"
-        config.output_attentions = True
+
+        if self.keep_attn:
+            config.attn_implementation = "eager"
+            config.output_attentions = True
 
         self.model = AutoModel.from_pretrained(
             pretrained_model_name,
@@ -78,13 +86,24 @@ class VisualEncoder2D(nn.Module):
         else:
             raise ValueError("Model not loaded. Call load_model() first.")
 
-    # [ ]: 检查是否 work
+
+    # [x]: 检查是否 work => last_hidden_state 包含全局的语义 cls token，slot attention 只需要局部的 patch tokens 即可
     def _forward_dinov3_vitb16(self, x):
-        # :arg x: (B, 3, H, W)
-        # :return x: (B, token, 768)
+        """
+        Args:
+            - x: Input tensor of shape (B, 3, H, W)
+
+        Returns:
+            - patch tokens of shape (B, tokens, 768)
+
+        outputs includes:
+            - last_hidden_state: (B, tokens+1+4, 768)
+            - attentions: (B, num_heads, tokens+1+4, tokens+1+4) if keep_attn is True
+            - pooler_output: (B, 768)
+        """
         outputs = self.model(x)
         last_hidden_state = outputs.last_hidden_state  # (B, token, 768)
-        return last_hidden_state
+        return last_hidden_state[:, 5:, :]  # Remove CLS token and 4 register tokens!
     
 
     def _forward_dinov2_vitb14(self, x):
@@ -93,19 +112,43 @@ class VisualEncoder2D(nn.Module):
         x = self.model.prepare_tokens_with_masks(x)
         for blk in self.model.blocks:
             x = blk(x)
-        x = x[:, 1:]  # Remove CLS token, dynamic binding of slots not needed here!
+        x = x[:, 1:]  # Remove CLS token!
         return x
 
 
 
 class VisualEncoder3D(nn.Module):
-    def __init__(self, ):
+    def __init__(self, 
+                 feats_channels,
+                 last_dim,
+                 arch_3d='MinkUNet18A',
+        ):
+        """
+        Construct a 3D visual encoder using MinkowskiUNet.
+        Args:
+            - last_dim (int): The output feature dimension of the 3D encoder.
+            - arch_3d (str): The architecture of the 3D model. Default is 'MinkUNet18A'.
+
+        """
         super().__init__()
-        pass
+        self.feats_channels = feats_channels
+        self.last_dim = last_dim
+        self.arch_3d = arch_3d
+        # MinkowskiNet for 3D point clouds
+        net3d = self._constructor3d()
+        self.net3d = net3d
 
 
     def forward(self, x):
-        pass
+        return self.net3d(x)
+
+
+    def _constructor3d(self):
+        model = model3D(in_channels=self.feats_channels, 
+                        out_channels=self.last_dim, 
+                        D=3, 
+                        arch=self.arch_3d)
+        return model
 
 
 class Aggregator(nn.Module):
@@ -119,7 +162,6 @@ class Aggregator(nn.Module):
 
 
 if __name__ == "__main__":
-
     def testing():
         # [x]: test VisualEncoder2D
         import cv2
@@ -208,10 +250,20 @@ if __name__ == "__main__":
         with torch.no_grad():
             outputs = model_2d(image_batch)
         print(outputs.shape)  # [2, 8045, 768] for dinov3-vitb16
-        
     
+    def testing_3d():
+        from MinkowskiEngine import SparseTensor
+        # 1. 点 + 特征
+        coords = torch.randint(0, 100, (30, 3)).int()
+        coords = torch.cat([torch.ones(30, 1).int(), coords], dim=1)  # (N, 4), 第一列是 batch idx, 设置成 1
+        feats = torch.randn(30, 6)  # 假设每个点有6个特征, 例如 RGB + 法线
+        # 2. 构造 SparseTensor
+        st = SparseTensor(feats, coords)
+        # 3. 构造模型
+        model_3d = VisualEncoder3D(feats_channels=feats.shape[1], last_dim=128, arch_3d='MinkUNet18A').eval()
+        # 4. 前向传播
+        with torch.no_grad():
+            out = model_3d(st)
+        print(out.shape)  # (N, 128) 输出每个点的128维特征; 所以 MinkowskiNet 还是逐点运算的; # [ ]: 点的特征应该如何和 DINOv3 的 patch 特征对齐?
 
-    testing()
-
-    # [ ]: Do some visualization works maybe!
-
+    testing_3d()

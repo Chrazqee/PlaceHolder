@@ -2,3 +2,5 @@ opencv-python
 hydra-core
 loguru
 transformers
+accelerate
+scipy-1.15.3
