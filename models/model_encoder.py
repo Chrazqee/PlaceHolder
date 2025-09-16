@@ -3,7 +3,8 @@ from torchvision import transforms
 import cv2
 import torch.nn as nn
 
-from mink_unet import mink_unet as model3D
+from mink_unet import mink_unet as MinkUnet
+from hydra.utils import instantiate
 
 
 _RESNET_MEAN = [0.485, 0.456, 0.406]
@@ -119,19 +120,22 @@ class VisualEncoder2D(nn.Module):
 
 class VisualEncoder3D(nn.Module):
     def __init__(self, 
-                 feats_channels,
-                 last_dim,
+                 model_name='MinkUnet',
+                 feats_channels=3,
+                 last_dim=128,
                  arch_3d='MinkUNet18A',
         ):
         """
         Construct a 3D visual encoder using MinkowskiUNet.
         Args:
+            - model_name(str): Definiate the model name
             - feats_channels(int): The dimension of features of every points, aka. feats.shape[1]
             - last_dim (int): The output feature dimension of the 3D encoder.
             - arch_3d (str): The architecture of the 3D model. Default is 'MinkUNet18A'.
 
         """
         super().__init__()
+        self.model_name = model_name
         self.feats_channels = feats_channels
         self.last_dim = last_dim
         self.arch_3d = arch_3d
@@ -141,24 +145,76 @@ class VisualEncoder3D(nn.Module):
 
 
     def forward(self, x):
+        """
+        x is a SparseTensor from MinkowskiEngine
+        """
         return self.net3d(x)
 
 
     def _constructor3d(self):
-        model = model3D(in_channels=self.feats_channels, 
-                        out_channels=self.last_dim, 
-                        D=3, 
-                        arch=self.arch_3d)
+        """For extensible!"""
+        if self.model_name == 'MinkUnet':
+            model = MinkUnet(in_channels=self.feats_channels, 
+                            out_channels=self.last_dim, 
+                            D=3, 
+                            arch=self.arch_3d)
+        else:
+            raise NotImplementedError(f"The model {self.model_name} was not implemented.")
         return model
 
 
 class Aggregator(nn.Module):
-    def __init__(self, ):
+    _AGGREGATION_FN = {"MLP", "CROSS_ATTN", }
+    def __init__(self, 
+                 visual_encoder_2d,
+                 visual_encoder_3d,
+                 aggregation=None,
+                 aggregation_fn="MLP",
+                 ):
         super().__init__()
-        pass
+        assert aggregation_fn in Aggregator.AGGREGATE_FN, f"You must point out the aggregated function in the set: {Aggregator._AGGREGATION_FN}."
+        
+        self.visual_model_2d = instantiate(visual_encoder_2d, _recursive_=False)
+        self.visual_model_3d = instantiate(visual_encoder_3d, _recursive_=False)
+
+        self.aggregation_fn = aggregation_fn
+        self.aggregation = aggregation
+
+        self._initialize_aggregation()
+        
 
 
-    def forward(self, x):
+    def forward(self, x_2d, x_3d):
+        feats_2d = self.visual_model_2d(x_2d)
+        feats_3d = self.visual_model_3d(x_3d)
+
+        feats = self._aggregate_features(feats_2d, feats_3d)
+
+        return feats
+
+    def _initialize_aggregation(self):
+        if self.aggregation_fn == "MLP":
+            # [ ]: 实例化 aggregation_mlp if aggregation_fn is "MLP", 注意配置参数
+            self.feature_aggregator = instantiate(self.aggregation, _recursive_=False)
+            pass
+        elif self.aggregation_fn == "CROSS_ATTN":
+            pass
+        else:
+            raise NotImplementedError(f"The aggregation function {self.aggregation_fn} was not implemented.")
+        
+    
+    def _aggregate_features(self, feats_2d, feats_3d):
+        """
+        [ ]: 实现, 考虑选用什么方法
+        """
+        if self.aggregation_fn == "MLP":
+            return self._aggregation_MLP() 
+        return None
+
+    def _aggregation_MLP(self, ):
+        """简单使用 MLP 但是使用的理由不应该简单
+        [ ]: 应该使用什么样的对齐机制在这个地方, 怎么监督这个 MLP, 让它能够确确实实地能促进特征的 aggregation!
+        """
         pass
 
 

@@ -63,6 +63,17 @@ class MLP(nn.Module):
         return x
     
 
+# [ ]: 实现 CROSS_ATTN 类, 用于特征 aggregation
+class CROSS_ATTN(nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        pass
+
+
+    def forward(self, x, y):
+        pass
+
+
 class Loss_Function(nn.Module):
     def __init__(self, 
                  token_num,
