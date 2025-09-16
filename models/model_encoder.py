@@ -126,6 +126,7 @@ class VisualEncoder3D(nn.Module):
         """
         Construct a 3D visual encoder using MinkowskiUNet.
         Args:
+            - feats_channels(int): The dimension of features of every points, aka. feats.shape[1]
             - last_dim (int): The output feature dimension of the 3D encoder.
             - arch_3d (str): The architecture of the 3D model. Default is 'MinkUNet18A'.
 
@@ -254,13 +255,15 @@ if __name__ == "__main__":
     def testing_3d():
         from MinkowskiEngine import SparseTensor
         # 1. 点 + 特征
-        coords = torch.randint(0, 100, (30, 3)).int()
-        coords = torch.cat([torch.ones(30, 1).int(), coords], dim=1)  # (N, 4), 第一列是 batch idx, 设置成 1
-        feats = torch.randn(30, 6)  # 假设每个点有6个特征, 例如 RGB + 法线
+        coords = torch.randint(0, 100, (300000, 3)).int()
+        coords = torch.cat([torch.ones(300000, 1).int(), coords], dim=1)  # (N, 4), 第一列是 batch idx, 设置成 1
+        feats = torch.randn(300000, 6)  # 假设每个点有6个特征, 例如 RGB + 法线
         # 2. 构造 SparseTensor
-        st = SparseTensor(feats, coords)
+        st = SparseTensor(feats.cuda(non_blocking=True), 
+                          coords.cuda(non_blocking=True))
         # 3. 构造模型
         model_3d = VisualEncoder3D(feats_channels=feats.shape[1], last_dim=128, arch_3d='MinkUNet18A').eval()
+        model_3d = model_3d.cuda()
         # 4. 前向传播
         with torch.no_grad():
             out = model_3d(st)
