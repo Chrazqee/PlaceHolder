@@ -9,3 +9,5 @@ MinkowskiEngine
 CLIP
 MinkowskiEngineInstallationGuidance.md
 Recording.md
+torch_scatter*
+train_main.py

@@ -24,7 +24,15 @@
 
 import MinkowskiEngine as ME
 from MinkowskiEngine.modules.resnet_block import BasicBlock, Bottleneck  # type: ignore
-from resnet_base import ResNetBase
+try:
+    from .resnet_base import ResNetBase
+except ImportError as e:
+    print("[ImportFallback] Relative import failed:", e)
+    try:
+        from resnet_base import ResNetBase
+    except ImportError as e2:
+        print("[ImportFallback] Absolute import also failed:", e2)
+        raise e2
 
 
 class MinkUNetBase(ResNetBase):
@@ -227,7 +235,7 @@ class MinkUNet18D(MinkUNet18):
 
 
 class MinkUNet34A(MinkUNet34):
-    PLANES = (32, 64, 128, 256, 256, 128, 64, 64)
+    PLANES = (32, 64, 128, 256, 256, 128, 64, 64) 
 
 
 class MinkUNet34B(MinkUNet34):

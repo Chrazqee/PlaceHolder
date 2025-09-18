@@ -1,0 +1,5 @@
+# aggregator/cross_attn.yaml
+_target_: models.CrossAttention
+d_model: 256
+num_heads: 8
+dropout: 0.1

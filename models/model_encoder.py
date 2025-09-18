@@ -3,12 +3,24 @@ from torchvision import transforms
 import cv2
 import torch.nn as nn
 
-from mink_unet import mink_unet as MinkUnet
+try:
+    from .mink_unet import mink_unet as MinkUnet
+except ImportError as e:
+    print("[models] Relative import failed:", e)
+    try:
+        from mink_unet import mink_unet as MinkUnet
+    except ImportError as e2:
+        print("[models] Absolute import also failed:", e2)
+        raise e2
+    
 from hydra.utils import instantiate
 
 
 _RESNET_MEAN = [0.485, 0.456, 0.406]
 _RESNET_STD = [0.229, 0.224, 0.225]
+
+import sys
+sys.path.append("/home/hanqi/codes/PlaceHolder")
 
 
 class VisualEncoder2D(nn.Module):
@@ -117,30 +129,30 @@ class VisualEncoder2D(nn.Module):
         return x
 
 
-
 class VisualEncoder3D(nn.Module):
     def __init__(self, 
                  model_name='MinkUnet',
-                 feats_channels=3,
-                 last_dim=128,
-                 arch_3d='MinkUNet18A',
+                 coords_dim=3,
+                 feats_dim=3,
+                 last_dim=384,
+                 arch_3d='MinkUNet34C',
         ):
         """
         Construct a 3D visual encoder using MinkowskiUNet.
         Args:
             - model_name(str): Definiate the model name
-            - feats_channels(int): The dimension of features of every points, aka. feats.shape[1]
+            - feats_dim(int): The dimension of features of every points, aka. feats.shape[1]
             - last_dim (int): The output feature dimension of the 3D encoder.
             - arch_3d (str): The architecture of the 3D model. Default is 'MinkUNet18A'.
 
         """
         super().__init__()
         self.model_name = model_name
-        self.feats_channels = feats_channels
+        self.coords_dim = coords_dim
+        self.feats_dim = feats_dim
         self.last_dim = last_dim
         self.arch_3d = arch_3d
-        # MinkowskiNet for 3D point clouds
-        net3d = self._constructor3d()
+        net3d = self._constructor3d()  # MinkowskiNet for 3D point clouds
         self.net3d = net3d
 
 
@@ -154,37 +166,44 @@ class VisualEncoder3D(nn.Module):
     def _constructor3d(self):
         """For extensible!"""
         if self.model_name == 'MinkUnet':
-            model = MinkUnet(in_channels=self.feats_channels, 
-                            out_channels=self.last_dim, 
-                            D=3, 
-                            arch=self.arch_3d)
+            model = MinkUnet(
+                in_channels=self.feats_dim, 
+                out_channels=self.last_dim, 
+                D=self.coords_dim,          # 表示处理 3D 点云或体素数据, 坐标是 [x, y, z]
+                arch=self.arch_3d)
         else:
             raise NotImplementedError(f"The model {self.model_name} was not implemented.")
         return model
 
 
 class Aggregator(nn.Module):
-    _AGGREGATION_FN = {"MLP", "CROSS_ATTN", }
+    _AGGREGATION_FN = {"cross_attn", }
     def __init__(self, 
                  visual_encoder_2d,
                  visual_encoder_3d,
-                 aggregation=None,
-                 aggregation_fn="MLP",
+                 mlp, 
+                 aggregator=None,  # 在 yaml 中配置 aggregation 参数
+                 aggregation_fn="cross_attn",
                  ):
         super().__init__()
-        assert aggregation_fn in Aggregator.AGGREGATE_FN, f"You must point out the aggregated function in the set: {Aggregator._AGGREGATION_FN}."
+        assert aggregation_fn in Aggregator._AGGREGATION_FN, f"You must point out the aggregated function in the set: {Aggregator._AGGREGATION_FN}."
         
         self.visual_model_2d = instantiate(visual_encoder_2d, _recursive_=False)
         self.visual_model_3d = instantiate(visual_encoder_3d, _recursive_=False)
-
+        self.mlp = mlp
+        # aggregation_fn and aggregator should be consistent, the class should be undertake the function
         self.aggregation_fn = aggregation_fn
-        self.aggregation = aggregation
+        self.aggregator = aggregator
 
         self._initialize_aggregation()
         
 
-
     def forward(self, x_2d, x_3d):
+        """
+        Args:
+            - x_2d: (B, 3, H, W)
+            - x_3d: SparseTensor, with coordinates (N, C) and features (N, F)
+        """
         feats_2d = self.visual_model_2d(x_2d)
         feats_3d = self.visual_model_3d(x_3d)
 
@@ -193,29 +212,36 @@ class Aggregator(nn.Module):
         return feats
 
     def _initialize_aggregation(self):
-        if self.aggregation_fn == "MLP":
-            # [ ]: 实例化 aggregation_mlp if aggregation_fn is "MLP", 注意配置参数
-            self.feature_aggregator = instantiate(self.aggregation, _recursive_=False)
-            pass
-        elif self.aggregation_fn == "CROSS_ATTN":
-            pass
-        else:
-            raise NotImplementedError(f"The aggregation function {self.aggregation_fn} was not implemented.")
-        
-    
+        # We can also add some other function when some functions need to be instantiated.
+        # To be elegant!
+        self.feature_aggregator = instantiate(self.aggregator, _recursive_=False)
+
+
+        self.mlp = instantiate(self.mlp, _recursive_=False)
+
+
+    # [ ]: Implement this function
     def _aggregate_features(self, feats_2d, feats_3d):
         """
-        [ ]: 实现, 考虑选用什么方法
+        Args:
+            - feats_2d: features from DINO, with high-level semantic information
+            - feats_3d: features from Minkowski unet, with high-level geometry information
         """
-        if self.aggregation_fn == "MLP":
-            return self._aggregation_MLP() 
-        return None
+        if self.aggregation_fn == "cross_attn":
+            # 这里只需要把 feats_3d 送入 MLP 即可, 得到的输出的每个点的特征的维度与 token 的维度相同
+            feats_3d = self.mlp(feats_3d)
+            
+            # Cross Attention aggregation
+            if self.feature_aggregator is not None:
+                self.feature_aggregator()
+        
 
-    def _aggregation_MLP(self, ):
-        """简单使用 MLP 但是使用的理由不应该简单
-        [ ]: 应该使用什么样的对齐机制在这个地方, 怎么监督这个 MLP, 让它能够确确实实地能促进特征的 aggregation!
-        """
-        pass
+
+
+        elif self.aggregation_fn == "cross_attn":
+            raise NotImplementedError("cross_attn not implemented yet.")
+        else:
+            raise ValueError(f"Aggregation function {self.aggregation_fn} not supported yet.")
 
 
 if __name__ == "__main__":
@@ -273,7 +299,7 @@ if __name__ == "__main__":
 
         logger.info(cfg)
 
-        model_2d = instantiate(cfg.visual_encoder_2d, _recursive_=False).eval()
+        model_2d = instantiate(cfg.Aggregator.visual_encoder_2d, _recursive_=False).eval()
 
         # 定义 transform
         image_transform = transforms.Compose([
@@ -323,6 +349,18 @@ if __name__ == "__main__":
         # 4. 前向传播
         with torch.no_grad():
             out = model_3d(st)
-        print(out.shape)  # (N, 128) 输出每个点的128维特征; 所以 MinkowskiNet 还是逐点运算的; # [ ]: 点的特征应该如何和 DINOv3 的 patch 特征对齐?
+        print(out.shape)  # (N, 128) 输出每个点的128维特征; 所以 MinkowskiNet 还是逐点运算的; # [x]: (CrossAttn)点的特征应该如何和 DINOv3 的 patch 特征对齐?
+        
+    def testing_3d_with_hydra():
+        from omegaconf import DictConfig, OmegaConf
+        from hydra.utils import instantiate
+        cfg = OmegaConf.load("config/default.yaml")
 
-    testing_3d()
+        print(cfg.Aggregator.visual_encoder_3d)
+
+        model_3d = instantiate(cfg.Aggregator.visual_encoder_3d, _recursive_=False).eval()
+
+        print(model_3d)
+
+        # [ ]: test CrossAttn useful or not
+    # testing_3d_with_hydra()
