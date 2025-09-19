@@ -15,8 +15,17 @@ from torch import nn
 #     point_sample,
 # )
 
-from models.misc import is_dist_avail_and_initialized, nested_tensor_from_tensor_list
-# from models.noise_robust_loss import ProjectionMaskLoss
+try:
+    from models.misc import is_dist_avail_and_initialized, nested_tensor_from_tensor_list
+    # from models.noise_robust_loss import ProjectionMaskLoss
+except ImportError as e:
+    # print("[ImportFallback] Relative import failed:", e)
+    try:
+        from misc import is_dist_avail_and_initialized, nested_tensor_from_tensor_list
+        # from noise_robust_loss import ProjectionMaskLoss
+    except ImportError as e2:
+        print("[ImportFallback] Absolute import also failed:", e2)
+        raise e2
 
 
 import torch.distributed as dist
@@ -301,3 +310,95 @@ class SetCriterion(nn.Module):
         lines = [head] + [" " * _repr_indent + line for line in body]
         return "\n".join(lines)
     
+
+class ReconstructionLoss(nn.Module):
+    def __init__(self, 
+                 token_num,
+                 num_slots
+                 ):
+        """ Reconstruction loss function with MSE loss between reconstruction and target.
+            e.g. slots after decoding and tokens from pretrained DINO.
+        Args:
+            token_num: int, number of tokens
+            num_slots: int, number of slots
+
+        Returns:
+            loss: tensor, reconstruction loss    
+        """
+        super().__init__()
+        self.mse = nn.MSELoss(reduction="none")
+        self.token_num = token_num
+        self.num_slots = num_slots
+        self.epsilon = 1e-8
+
+    def forward(self, reconstruction, masks, target):
+        # :args reconstruction: (B, token, 768)
+        # :args masks:  (B, S, token)
+        # :args target: (B, token, 768)
+        target = target.detach()
+        loss = self.mse(reconstruction, target.detach()).mean()
+        return loss
+
+
+class ContrastiveLoss(nn.Module):
+    def __init__(self, 
+                 temperature=0.1,
+                 ):
+        """ Contrastive loss function with temperature scaling.
+        Args:
+            temperature: float, temperature scaling factor
+
+        Returns:
+            loss: tensor, contrastive loss    
+        """
+        super().__init__()
+        self.temperature = temperature
+        self.epsilon = 1e-8
+
+    def forward(self, attn_map):
+        # :args slots: (B, S, 768)
+        # slots = F.normalize(slots, dim=-1)
+        
+        # sim_matrix = torch.einsum('b i d, b j d -> b i j', slots, slots) / self.temperature
+        # sim_matrix = torch.exp(sim_matrix)
+
+        # mask = torch.eye(sim_matrix.shape[1], device=sim_matrix.device).unsqueeze(0).bool()
+
+        # pos_sim = sim_matrix.masked_select(mask).view(sim_matrix.shape[0], sim_matrix.shape[1], 1)
+        # neg_sim = sim_matrix.masked_select(~mask).view(sim_matrix.shape[0], sim_matrix.shape[1], sim_matrix.shape[1]-1)
+
+        # loss = -torch.log(pos_sim / (neg_sim.sum(-1, keepdim=True) + self.epsilon)).mean()
+        # return loss
+        self.get_patch_to_point_indices(attn_map, threshold=0.05)
+
+    def get_patch_to_point_indices(self, attn_map, threshold=0.05):
+        """
+        Args:
+            attn_map: Tensor of shape [B, N_patch, N_point]
+            threshold: float, attention score threshold
+
+        Returns:
+            patch_to_point: list of list of LongTensor
+                patch_to_point[b][i] contains indices of points selected for patch i in batch b
+        """
+        B, N_patch, N_point = attn_map.shape
+        patch_to_point = []
+
+        for b in range(B):
+            batch_map = attn_map[b]  # [N_patch, N_point]
+            patch_indices = []
+            for i in range(N_patch):
+                attn_scores = batch_map[i]  # [N_point]
+                selected = torch.nonzero(attn_scores > threshold, as_tuple=False).squeeze(1)  # LongTensor
+                patch_indices.append(selected)
+            patch_to_point.append(patch_indices)
+
+        return patch_to_point
+
+
+if __name__ == "__main__":
+    contrastive = ContrastiveLoss()
+    attn_map = torch.randn(1, 3, 5).sigmoid()  # 3 个 patch tokens, 8 个 3D 点
+    print(attn_map)
+    results = contrastive.get_patch_to_point_indices(attn_map, threshold=0.5)
+    print(results)

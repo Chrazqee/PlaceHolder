@@ -98,30 +98,4 @@ class PositionalEncoding3D(nn.Module):
         return emb[:, :, :self.orig_ch].permute((0, 2, 1))
 
 
-class Loss_Function(nn.Module):
-    def __init__(self, 
-                 token_num,
-                 num_slots
-                 ):
-        """ Reconstruction loss function with MSE loss between reconstruction and target.
-            e.g. slots after decoding and tokens from pretrained DINO.
-        Args:
-            token_num: int, number of tokens
-            num_slots: int, number of slots
 
-        Returns:
-            loss: tensor, reconstruction loss    
-        """
-        super().__init__()
-        self.mse = nn.MSELoss(reduction="none")
-        self.token_num = token_num
-        self.num_slots = num_slots
-        self.epsilon = 1e-8
-
-    def forward(self, reconstruction, masks, target):
-        # :args reconstruction: (B, token, 768)
-        # :args masks:  (B, S, token)
-        # :args target: (B, token, 768)
-        target = target.detach()
-        loss = self.mse(reconstruction, target.detach()).mean()
-        return loss

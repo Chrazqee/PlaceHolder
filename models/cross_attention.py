@@ -6,7 +6,7 @@ from mmengine.model import BaseModule
 from torch_scatter import scatter_mean, scatter_add
 
 
-# [ ]: 实现 CROSS_ATTN 类, 用于特征 aggregation
+# [x]: 实现 CROSS_ATTN 类, 用于特征 aggregation
 class CrossAttentionLayer(BaseModule):
     """Cross attention layer.
 
@@ -16,13 +16,14 @@ class CrossAttentionLayer(BaseModule):
         dropout (float): Dropout rate.
     """
 
-    def __init__(self, d_model, num_heads, dropout, fix=False):
+    def __init__(self, d_model, num_heads, dropout, fix=False, keep_attn_map=False):
         super().__init__()
         self.fix = fix
         self.attn = nn.MultiheadAttention(
             d_model, num_heads, dropout=dropout, batch_first=True)
         self.norm = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(dropout)
+        self.keep_attn_map = keep_attn_map
         self.init_weights()
 
     def init_weights(self):
@@ -48,16 +49,21 @@ class CrossAttentionLayer(BaseModule):
                 each of shape(n_queries_i, d_model).
         """
         outputs = []
+        attn_maps = []
         for i in range(len(sources)):
             k = v = sources[i]
             attn_mask = attn_masks[i] if attn_masks is not None else None
-            output, _ = self.attn(queries[i], k, v, attn_mask=attn_mask)
+            # output, _ = self.attn(queries[i], k, v, attn_mask=attn_mask)
+            output, attn_map = self.attn(queries[i], k, v, attn_mask=attn_mask)
             if self.fix:
                 output = self.dropout(output)
             output = output + queries[i]
             if self.fix:
                 output = self.norm(output)
             outputs.append(output)
+            attn_maps.append(attn_map)
+        if self.keep_attn_map:
+            return outputs, attn_maps
         return outputs
 
 
@@ -681,7 +687,7 @@ class S3DISQueryDecoder(QueryDecoder):
 if __name__ == "__main__":
 
 
-    # [ ]: test CrossAttentionLayer; inputs and outputs
+    # [x]: test CrossAttentionLayer; inputs and outputs
     def test_cross_attention():
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         print(f"Using device: {device}")

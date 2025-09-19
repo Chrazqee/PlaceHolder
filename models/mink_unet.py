@@ -179,7 +179,8 @@ class MinkUNetBase(ResNetBase):
         out = ME.cat(out, out_p1)
         out = self.block8(out)
 
-        return self.final(out).F
+        # return self.final(out).F
+        return self.final(out)
 
 class MinkUNet14(MinkUNetBase):
     BLOCK = BasicBlock
