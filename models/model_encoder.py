@@ -4,19 +4,18 @@ import cv2
 import torch.nn as nn
 from torch_scatter import scatter, scatter_add, scatter_mean
 
+from hydra.utils import instantiate
 
 try:
     from .mink_unet import mink_unet as MinkUnet
 except ImportError as e:
-    print("[models] Relative import failed:", e)
+    # print("[models] Relative import failed:", e)
     try:
         from mink_unet import mink_unet as MinkUnet
     except ImportError as e2:
         print("[models] Absolute import also failed:", e2)
         raise e2
     
-from hydra.utils import instantiate
-
 
 _RESNET_MEAN = [0.485, 0.456, 0.406]
 _RESNET_STD = [0.229, 0.224, 0.225]
@@ -90,7 +89,7 @@ class VisualEncoder2D(nn.Module):
         # wget https://dl.fbaipublicfiles.com/dinov2/dinov2_vitb14/dinov2_vitb14_pretrain.pth
         self.model = torch.hub.load("facebookresearch/dinov2", "dinov2_vitb14")
 
-
+    @torch.no_grad()
     def forward(self, x):
         """
         Forward pass through the loaded model.
@@ -261,8 +260,8 @@ class Aggregator(nn.Module):
             else:
                 raise ValueError("The instance of feature_aggregator is None, please check your config file.")
 
-        elif self.aggregation_fn == "xxx":
-            raise NotImplementedError("cross_attn not implemented yet.")
+        elif self.aggregation_fn == "placeHold":
+            raise NotImplementedError(f"{self.aggregation_fn} have not implemented yet.")
         else:
             raise ValueError(f"Aggregation function {self.aggregation_fn} not supported yet.")
 
@@ -307,6 +306,7 @@ class Aggregator(nn.Module):
 
         # [ ]: tensor 矩阵变换, 是不是应该把这个 tensor stack 起来
         return points_to_tokens_indices
+    
     
 
 if __name__ == "__main__":
